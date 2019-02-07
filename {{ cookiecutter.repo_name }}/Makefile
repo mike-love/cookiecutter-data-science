@@ -5,17 +5,11 @@
 #################################################################################
 
 PROJECT_DIR := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
-BUCKET = {{ cookiecutter.s3_bucket }}
-PROFILE = {{ cookiecutter.aws_profile }}
 PROJECT_NAME = {{ cookiecutter.repo_name }}
-PYTHON_INTERPRETER = {{ cookiecutter.python_interpreter }}
-
-ifeq (,$(shell which conda))
-HAS_CONDA=False
-else
-HAS_CONDA=True
-endif
-
+PYTHON_INTERPRETER = python3
+RAW_DIR := data/raw
+INTERIM_DIR := data/interim
+PROCESSED_DIR := data/processed
 #################################################################################
 # COMMANDS                                                                      #
 #################################################################################
@@ -25,9 +19,24 @@ requirements: test_environment
 	$(PYTHON_INTERPRETER) -m pip install -U pip setuptools wheel
 	$(PYTHON_INTERPRETER) -m pip install -r requirements.txt
 
+
+## Fetch Raw Data; args: RAW_DIR
+rawdata: requirements
+	$(PYTHON_INTERPRETER) src/data/make_rawdata.py $(RAW_DIR)
+
+## Clean up Datasets before final creating dataset; args: RAW_DIR INTERIM_DIR
+interimdata: requirements
+	$(PYTHON_INTERPRETER) src/data/make_interimdata.py $(RAW_DIR) $(INTERIM_DIR)
+
+## Make Final Dataset; args: INTERIM_DIR PROCESSED_DIR
+finaldataset: requirements
+	$(PYTHON_INTERPRETER) src/data/make_finaldata.py $(INTERIM_DIR) $(PROCESSED_DIR)
+
 ## Make Dataset
 data: requirements
-	$(PYTHON_INTERPRETER) src/data/make_dataset.py
+	$(PYTHON_INTERPRETER) src/data/make_rawdata.py $(RAW_DIR)
+	$(PYTHON_INTERPRETER) src/data/make_interimdata.py $(RAW_DIR) $(INTERIM_DIR)
+	$(PYTHON_INTERPRETER) src/data/make_finaldata.py $(INTERIM_DIR) $(PROCESSED_DIR)
 
 ## Delete all compiled Python files
 clean:
@@ -37,40 +46,6 @@ clean:
 ## Lint using flake8
 lint:
 	flake8 src
-
-## Upload Data to S3
-sync_data_to_s3:
-ifeq (default,$(PROFILE))
-	aws s3 sync data/ s3://$(BUCKET)/data/
-else
-	aws s3 sync data/ s3://$(BUCKET)/data/ --profile $(PROFILE)
-endif
-
-## Download Data from S3
-sync_data_from_s3:
-ifeq (default,$(PROFILE))
-	aws s3 sync s3://$(BUCKET)/data/ data/
-else
-	aws s3 sync s3://$(BUCKET)/data/ data/ --profile $(PROFILE)
-endif
-
-## Set up python interpreter environment
-create_environment:
-ifeq (True,$(HAS_CONDA))
-		@echo ">>> Detected conda, creating conda environment."
-ifeq (3,$(findstring 3,$(PYTHON_INTERPRETER)))
-	conda create --name $(PROJECT_NAME) python=3
-else
-	conda create --name $(PROJECT_NAME) python=2.7
-endif
-		@echo ">>> New conda env created. Activate with:\nsource activate $(PROJECT_NAME)"
-else
-	$(PYTHON_INTERPRETER) -m pip install -q virtualenv virtualenvwrapper
-	@echo ">>> Installing virtualenvwrapper if not already intalled.\nMake sure the following lines are in shell startup file\n\
-	export WORKON_HOME=$$HOME/.virtualenvs\nexport PROJECT_HOME=$$HOME/Devel\nsource /usr/local/bin/virtualenvwrapper.sh\n"
-	@bash -c "source `which virtualenvwrapper.sh`;mkvirtualenv $(PROJECT_NAME) --python=$(PYTHON_INTERPRETER)"
-	@echo ">>> New virtualenv created. Activate with:\nworkon $(PROJECT_NAME)"
-endif
 
 ## Test python environment is setup correctly
 test_environment:
